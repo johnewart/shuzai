@@ -1,10 +1,7 @@
 package net.johnewart.chronos;
 
 import java.io.PrintStream;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 // TODO: Make sure we copy instead of point
 public class DataFrame<I, V> {
@@ -47,22 +44,6 @@ public class DataFrame<I, V> {
         }
     }
 
-    public void fill() {
-        // Backfill only for now
-        for(Map<I, V> m : valuesMap.values()) {
-            V lastValue = null;
-            for(I indexValue : index) {
-                if(m.containsKey(indexValue)) {
-                    lastValue = m.get(indexValue);
-                }
-
-                if(!m.containsKey(indexValue)) {
-                    m.put(indexValue, lastValue);
-                }
-            }
-        }
-    }
-
     public Index<I> getIndex() {
         return index;
     }
@@ -88,6 +69,40 @@ public class DataFrame<I, V> {
                 out.print(" | ");
             }
             out.println();
+        }
+    }
+
+    public void forwardFill() {
+        for(Map<I, V> m : valuesMap.values()) {
+            V lastValue = null;
+            for(I indexValue : index) {
+                if(m.containsKey(indexValue)) {
+                    lastValue = m.get(indexValue);
+                }
+
+                if(!m.containsKey(indexValue)) {
+                    m.put(indexValue, lastValue);
+                }
+            }
+        }
+    }
+
+    public void backFill() {
+        for(Map<I, V> m : valuesMap.values()) {
+            List<I> backfillKeys = new LinkedList<>();
+            for(I indexValue : index) {
+                if(!m.containsKey(indexValue)) {
+                    backfillKeys.add(indexValue);
+                }
+
+                if(m.containsKey(indexValue)) {
+                    V goodValue = m.get(indexValue);
+                    for(I emptyIndex : backfillKeys) {
+                        m.put(emptyIndex, goodValue);
+                    }
+                    backfillKeys = new LinkedList<>();
+                }
+            }
         }
     }
 }

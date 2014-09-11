@@ -8,7 +8,7 @@ package net.johnewart.chronos;
  * To change this template use File | Settings | File Templates.
  */
 public enum FillMethod {
-    LINEAR,
     BACK,
     FORWARD,
+    BOTH
 }

@@ -1,6 +1,7 @@
 package net.johnewart.chronos;
 
 import org.joda.time.DateTime;
+import org.joda.time.DateTimeFieldType;
 import org.joda.time.LocalDateTime;
 import org.joda.time.Period;
 

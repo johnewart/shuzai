@@ -2,9 +2,11 @@ package net.johnewart.chronos;
 
 import com.google.common.collect.ImmutableList;
 import org.joda.time.DateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 
 /*
@@ -32,50 +34,45 @@ def frame_datasets(datasets, time_window, frequency="5min"):
     data_frame = DataFrame(d)
     return data_frame
  */
-public class TimeSeries<E extends Number> implements Series<DateTime, E> {
-    private final TreeMap<DateTime, E> timeValues;
+public class TimeSeries implements Series<DateTime, BigDecimal> {
+    private static final Logger LOG = LoggerFactory.getLogger(TimeSeries.class);
+
+    private final TreeMap<DateTime, BigDecimal> timeValues;
     private final Index<DateTime> index;
 
-    public TimeSeries(List<E> elements, List<DateTime> timeIndices) {
+    public TimeSeries(List<? extends Number> elements, List<DateTime> timeIndices) {
+        if (elements.getClass() == LinkedList.class || timeIndices.getClass() == LinkedList.class) {
+            LOG.warn("LinkedList being used for elements or time data, performance will be degraded.");
+        }
+
         if (elements.size() != timeIndices.size()) {
             throw new IllegalArgumentException("Elements and time indices must be of the same size!");
         }
 
         timeValues = new TreeMap<>();
         index = new Index<>();
+        index.addAll(timeIndices);
 
-        for(int i = 0; i < elements.size(); i++) {
-            timeValues.put(timeIndices.get(i), elements.get(i));
-            index.add(timeIndices.get(i));
+        Iterator elementIterator = elements.iterator();
+        Iterator timeIterator = timeIndices.iterator();
+
+        while(elementIterator.hasNext() && timeIterator.hasNext()) {
+            DateTime time = (DateTime) timeIterator.next();
+            Number n = (Number) elementIterator.next();
+            BigDecimal value =  new BigDecimal(n.toString());
+            timeValues.put(time, value);
         }
     }
 
-    public TimeSeries(E defaultValue, TimeRange range) {
+    public TimeSeries(Number defaultValue, TimeRange range) {
         timeValues = new TreeMap<>();
         index = new Index<>();
         for(int i = 0; i < range.size(); i++) {
-            timeValues.put(range.get(i), defaultValue);
+            timeValues.put(range.get(i), new BigDecimal(defaultValue.toString()));
             index.add(range.get(i));
         }
     }
 
-    public void merge(TimeSeries<E> otherTimeSeries) {
-        this.merge(otherTimeSeries, FillMethod.LINEAR);
-    }
-
-    public void merge(TimeSeries<E> otherTimeSeries, FillMethod fillMethod) {
-        /*if (fillMethod == FillMethod.LINEAR) {
-            // Our time steps
-            double x[] = { 1.0, 2.0, 3.0   };
-            double y[] = { 1.0, -1.0, 2.0};
-            UnivariateInterpolator interpolator = new SplineInterpolator();
-            UnivariateFunction function = interpolator.interpolate(x, y);
-            double interpolationX = 0.5;
-            double interpolatedY = function.value(interpolationX);
-            System.out.println("f(" + interpolationX + ") = " + interpolatedY);
-        }*/
-
-    }
 
     /**
      * Create a copy of the time series with a new frequency, summing all points into their proper buckets
@@ -83,11 +80,14 @@ public class TimeSeries<E extends Number> implements Series<DateTime, E> {
      * @return A new TimeSeries with the specified frequency
      */
     // TODO: One interval case
-    public TimeSeries<E> toFrequency(Frequency frequency) {
+    public TimeSeries downSample(Frequency frequency, SampleMethod sampleMethod) {
         DateTime start = index.first();
         DateTime end = index.last();
+        // Reset start to beginning of hour
+        start = start.minusMinutes(start.getMinuteOfHour());
+
         List<DateTime> intervals = TimeRange.computeIntervals(start, end, frequency);
-        List<E> values = new ArrayList<E>(intervals.size());
+        List<BigDecimal> values = new ArrayList<>(intervals.size());
 
         Iterator<DateTime> it = intervals.iterator();
         DateTime previous = null;
@@ -95,30 +95,51 @@ public class TimeSeries<E extends Number> implements Series<DateTime, E> {
         while(it.hasNext()) {
             DateTime current = it.next();
             if(previous != null) {
-                values.add(sumRegion(previous, current, false));
+                values.add(sampleRegion(previous, current, false, sampleMethod));
 
-                if(!it.hasNext() && current.isBefore(end)) {
+                if(!it.hasNext() && (current.isBefore(end) || current.isEqual(end))) {
                     // Sum up to the end
-                    values.add(sumRegion(current, end, true));
+                    values.add(sampleRegion(current, end, true, sampleMethod));
                 }
 
             }
             previous = current;
         }
 
-        return new TimeSeries<>(values, intervals);
+        return new TimeSeries(values, intervals);
     }
 
-    private E sumRegion(DateTime start, DateTime end, boolean includeEnd) {
-        Set<DateTime> subSet = index.subSet(start, end, includeEnd);
-        BigDecimal sum = new BigDecimal(0);
-        for(DateTime dt : subSet) {
-            sum = sum.add(new BigDecimal(timeValues.get(dt).doubleValue()));
+    private BigDecimal sampleRegion(DateTime start, DateTime end, boolean includeEnd, SampleMethod sampleMethod) {
+        Set<DateTime> region = index.subSet(start, end, includeEnd);
+        switch(sampleMethod) {
+            case SUM:
+                return sumRegion(region);
+            case MEAN:
+                return meanRegion(region);
+            default:
+                throw new IllegalArgumentException("Unknown sample method");
         }
-        return (E) sum;
     }
 
-    public List<E> values() {
+    private BigDecimal meanRegion(Set<DateTime> region) {
+        if (region.size() > 0) {
+            BigDecimal sum = sumRegion(region);
+            BigDecimal size = new BigDecimal(region.size());
+            return sum.divide(size, 40, RoundingMode.HALF_UP);
+        } else {
+            return new BigDecimal(0);
+        }
+    }
+
+    private BigDecimal sumRegion(Set<DateTime> region) {
+        BigDecimal sum = new BigDecimal(0);
+        for(DateTime dt : region) {
+            sum = sum.add(new BigDecimal(timeValues.get(dt).toString()));
+        }
+        return sum;
+    }
+
+    public List<BigDecimal> values() {
         return ImmutableList.copyOf(timeValues.values());
     }
 
@@ -127,7 +148,7 @@ public class TimeSeries<E extends Number> implements Series<DateTime, E> {
     }
 
     @Override
-    public Map<DateTime, E> data() {
+    public Map<DateTime, BigDecimal> data() {
         return timeValues;
     }
 
