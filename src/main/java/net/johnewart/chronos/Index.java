@@ -56,11 +56,19 @@ public class Index<T> implements Iterable<T> {
     }
 
     public T first() {
-        return index.first();
+        try {
+            return index.first();
+        } catch (NoSuchElementException e) {
+            return null;
+        }
     }
 
     public T last() {
-        return index.last();
+        try {
+            return index.last();
+        } catch (NoSuchElementException e) {
+            return null;
+        }
     }
 
     /**

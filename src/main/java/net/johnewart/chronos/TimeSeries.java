@@ -9,36 +9,16 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 
-/*
-def fetch_dataset_as_timeseries(dataset, time_window, frequency="5min"):
-    time_range = date_range(start=time_window.start_time, end=time_window.end_time, freq=frequency)
-    # Build a zero-based time-series
-    time_series = TimeSeries([0] * len(time_range), index=time_range)
-
-    data_series = fetch_dataset_data(dataset, time_window)
-    data_series = data_series.interpolate()
-    data_series = data_series.apply(lambda x: convert(x, dataset.stored_unit, dataset.display_unit))
-    data_series = data_series.asfreq(frequency, method='pad')
-
-    time_series = time_series.combine_first(data_series)
-
-    return time_series
-
-
-def frame_datasets(datasets, time_window, frequency="5min"):
-    d = {}
-    for dataset in datasets:
-        time_series = fetch_dataset_as_timeseries(dataset, time_window, frequency)
-        d[dataset.label] = time_series
-
-    data_frame = DataFrame(d)
-    return data_frame
- */
 public class TimeSeries implements Series<DateTime, BigDecimal> {
     private static final Logger LOG = LoggerFactory.getLogger(TimeSeries.class);
 
     private final TreeMap<DateTime, BigDecimal> timeValues;
     private final Index<DateTime> index;
+
+    public TimeSeries() {
+        this.index = new Index<>();
+        this.timeValues = new TreeMap<>();
+    }
 
     public TimeSeries(List<? extends Number> elements, List<DateTime> timeIndices) {
         if (elements.getClass() == LinkedList.class || timeIndices.getClass() == LinkedList.class) {
@@ -73,37 +53,89 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
         }
     }
 
+    public void add(DateTime time, BigDecimal value) {
+        timeValues.put(time, value);
+        index.add(time);
+    }
+
 
     /**
      * Create a copy of the time series with a new frequency, summing all points into their proper buckets
-     * @param frequency
+     * @param frequency The frequency to take samples (i.e every 5 minutes, 10 seconds, etc.)
+     * @param sampleMethod The mechanism to use when taking samples (sum, mean, etc.)
      * @return A new TimeSeries with the specified frequency
      */
     // TODO: One interval case
     public TimeSeries downSample(Frequency frequency, SampleMethod sampleMethod) {
         DateTime start = index.first();
         DateTime end = index.last();
-        // Reset start to beginning of hour
-        start = start.minusMinutes(start.getMinuteOfHour());
+        return downSampleToTimeWindow(start, end, frequency, sampleMethod);
+    }
+
+    /**
+     * Downsample the data while fitting to a specific time window. Non-existant data will be filled in as zero
+     * TODO: Make this use NaN instead of zero for empty areas
+     * @param start The start of the time window desired
+     * @param end The end of the time window desired, inclusive
+     * @param frequency How often to take samples
+     * @param sampleMethod How to interpolate the data
+     * @return A new TimeSeries object with the downsampled data
+     */
+    public TimeSeries downSampleToTimeWindow(DateTime start, DateTime end, Frequency frequency, SampleMethod sampleMethod) {
+        // Reset start to land on a time window
+        int offset;
+        switch(frequency.timeUnit) {
+            case MILLISECONDS:
+                // i.e at 2s 502ms, if frequency is every 500ms, go to 2s 500ms
+                offset = start.getMillisOfSecond() % frequency.offset;
+                start = start.minusMillis(offset);
+                break;
+            case SECONDS:
+                // i.e at 5m 24s if frequency is every 10s, go back to 5m 20s
+                offset = start.getSecondOfMinute() % frequency.offset;
+                start = start.minusSeconds(offset);
+                break;
+            case MINUTES:
+                offset = start.getMinuteOfHour() % frequency.offset;
+                start = start.minusMinutes(offset);
+                break;
+            case HOURS:
+                offset = start.getHourOfDay() % frequency.offset;
+                start = start.minusHours(offset);
+                break;
+            case DAYS:
+                offset = start.getDayOfYear() % frequency.offset;
+                start = start.minusDays(offset);
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported time unit!");
+        }
 
         List<DateTime> intervals = TimeRange.computeIntervals(start, end, frequency);
         List<BigDecimal> values = new ArrayList<>(intervals.size());
 
-        Iterator<DateTime> it = intervals.iterator();
-        DateTime previous = null;
 
-        while(it.hasNext()) {
-            DateTime current = it.next();
-            if(previous != null) {
-                values.add(sampleRegion(previous, current, false, sampleMethod));
+        if(intervals.size() == 1) {
+            // Time window bigger than data collected, only one point in it, add all the data in the window
+            values.add(sampleRegion(start, end, true, sampleMethod));
+        } else {
+            // More than one interval, do this!
+            Iterator<DateTime> it = intervals.iterator();
+            DateTime previous = null;
 
-                if(!it.hasNext() && (current.isBefore(end) || current.isEqual(end))) {
-                    // Sum up to the end
-                    values.add(sampleRegion(current, end, true, sampleMethod));
+            while(it.hasNext()) {
+                DateTime current = it.next();
+                if(previous != null) {
+                    values.add(sampleRegion(previous, current, false, sampleMethod));
+
+                    if(!it.hasNext() && (current.isBefore(end) || current.isEqual(end))) {
+                        // Sum up to the end
+                        values.add(sampleRegion(current, end, true, sampleMethod));
+                    }
+
                 }
-
+                previous = current;
             }
-            previous = current;
         }
 
         return new TimeSeries(values, intervals);
@@ -157,6 +189,40 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
         index.merge(newIndex);
     }
 
+    @Override
+    public BigDecimal lastValue() {
+        DateTime lastIndex = index.last();
+        if(lastIndex != null) {
+            return timeValues.get(lastIndex);
+        } else {
+            return null;
+        }
+    }
+
+    public Map<DateTime, BigDecimal> toMap() {
+        HashMap<DateTime, BigDecimal> map = new HashMap<>();
+        for(DateTime dateTime : index) {
+            map.put(dateTime, timeValues.get(dateTime));
+        }
+        return map;
+    }
+
+    /**
+     * Sum all the elements in the time-series (i.e downsample with sum across entire time
+     * slice)
+     * @return The sum of all elements
+     */
+    public BigDecimal sum() {
+        return sampleRegion(index.first(), index.last(), true, SampleMethod.SUM);
+    }
+
+    /**
+     * Compute the mean of all elements in the time-series
+     * @return The mean of all elements
+     */
+    public BigDecimal mean() {
+        return sampleRegion(index.first(), index.last(), true, SampleMethod.MEAN);
+    }
 
 }
 
