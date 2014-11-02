@@ -1,4 +1,4 @@
-package net.johnewart.chronos;
+package net.johnewart.shuzai;
 
 import java.util.Map;
 

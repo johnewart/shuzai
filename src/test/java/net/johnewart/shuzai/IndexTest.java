@@ -1,4 +1,4 @@
-package net.johnewart.chronos;
+package net.johnewart.shuzai;
 
 import org.joda.time.DateTime;
 import org.junit.Test;

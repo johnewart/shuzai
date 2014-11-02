@@ -1,14 +1,10 @@
-package net.johnewart.chronos;
+package net.johnewart.shuzai;
 
 import org.joda.time.DateTime;
-import org.joda.time.DateTimeFieldType;
-import org.joda.time.LocalDateTime;
 import org.joda.time.Period;
 
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class TimeRange {
     public final DateTime startTime, endTime;

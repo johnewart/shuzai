@@ -1,4 +1,4 @@
-package net.johnewart.chronos;
+package net.johnewart.shuzai;
 
 import com.google.common.collect.ImmutableList;
 import org.joda.time.DateTime;
