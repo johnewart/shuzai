@@ -21,6 +21,8 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
     }
 
     public TimeSeries(List<? extends Number> elements, List<DateTime> timeIndices) {
+        this();
+
         if (elements.getClass() == LinkedList.class || timeIndices.getClass() == LinkedList.class) {
             LOG.warn("LinkedList being used for elements or time data, performance will be degraded.");
         }
@@ -29,10 +31,6 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
             throw new IllegalArgumentException("Elements and time indices must be of the same size!");
         }
 
-        timeValues = new TreeMap<>();
-        index = new Index<>();
-        index.addAll(timeIndices);
-
         Iterator elementIterator = elements.iterator();
         Iterator timeIterator = timeIndices.iterator();
 
@@ -40,8 +38,9 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
             DateTime time = (DateTime) timeIterator.next();
             Number n = (Number) elementIterator.next();
             BigDecimal value =  new BigDecimal(n.toString());
-            timeValues.put(time, value);
+            add(time, value);
         }
+
     }
 
     public TimeSeries(Number defaultValue, TimeRange range) {
@@ -58,6 +57,37 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
         index.add(time);
     }
 
+    public void add(DateTime time, long value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, Long value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, int value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, Integer value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, double value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, Double value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, float value) {
+        add(time, new BigDecimal(value));
+    }
+
+    public void add(DateTime time, Float value) {
+        add(time, new BigDecimal(value));
+    }
 
     /**
      * Create a copy of the time series with a new frequency, summing all points into their proper buckets
@@ -69,7 +99,12 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
     public TimeSeries downSample(Frequency frequency, SampleMethod sampleMethod) {
         DateTime start = index.first();
         DateTime end = index.last();
-        return downSampleToTimeWindow(start, end, frequency, sampleMethod);
+        if(start != null && end != null) {
+            return downSampleToTimeWindow(start, end, frequency, sampleMethod);
+        } else {
+            // No start and no end, so return a new empty time series
+            return new TimeSeries();
+        }
     }
 
     /**
@@ -113,7 +148,6 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
 
         List<DateTime> intervals = TimeRange.computeIntervals(start, end, frequency);
         List<BigDecimal> values = new ArrayList<>(intervals.size());
-
 
         if(intervals.size() == 1) {
             // Time window bigger than data collected, only one point in it, add all the data in the window
@@ -197,6 +231,16 @@ public class TimeSeries implements Series<DateTime, BigDecimal> {
         } else {
             return null;
         }
+    }
+
+    @Override
+    public Map<DateTime, BigDecimal> dataWindow(DateTime lower, DateTime upper) {
+        SortedSet<DateTime> dateRange = index.subSet(lower, upper, true);
+        Map<DateTime, BigDecimal> data = new HashMap<>();
+        for(DateTime dt : dateRange) {
+            data.put(dt, timeValues.get(dt));
+        }
+        return data;
     }
 
     public Map<DateTime, BigDecimal> toMap() {

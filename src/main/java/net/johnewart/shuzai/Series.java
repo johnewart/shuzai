@@ -7,4 +7,5 @@ public interface Series<I,V> {
     Map<I, V> data();
     void expand(Index<I> newIndex);
     V lastValue();
+    Map<I, V> dataWindow(I lower, I upper);
 }
